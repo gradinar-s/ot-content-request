@@ -95,10 +95,10 @@ module.exports = {
   },
 
   // Function to store photos in the database
-  storePhoto: (username, request_number, fileId) => {
+  storePhoto: (username, request_number, media) => {
     db.run(
-      "INSERT INTO photos (username, request_number, file_id) VALUES (?, ?, ?)",
-      [username, request_number, fileId],
+      "INSERT INTO photos (username, request_number, media) VALUES (?, ?, ?)",
+      [username, request_number, media],
       function (err) {
         if (err) {
           return console.error(err.message);
@@ -111,13 +111,13 @@ module.exports = {
   // Функция для получения фотографий из базы данных
   getPhotos: (username, requestNumber, callback) => {
     db.all(
-      "SELECT file_id FROM photos WHERE username = ? AND request_number = ?",
+      "SELECT media FROM photos WHERE username = ? AND request_number = ?",
       [username, requestNumber],
       (err, rows) => {
         if (err) {
           return console.error(err.message);
         }
-        callback(rows);
+        callback(JSON.parse(rows[0].media));
       }
     );
   },

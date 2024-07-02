@@ -10,7 +10,7 @@ db.serialize(() => {
             username TEXT,
             request_number NUMBER,
             file_id TEXT,
-            group_id INTEGER,
+            media TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     `,

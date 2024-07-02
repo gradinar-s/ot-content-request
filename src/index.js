@@ -1,91 +1,158 @@
 require("dotenv").config();
 require("./db");
+
 const { Telegraf, Markup } = require("telegraf");
 const LocalSession = require("telegraf-session-local");
 const helpers = require("./helpers");
+const mediaGroup = require("./media_group");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(new LocalSession({ database: "session.json" }).middleware());
+bot.use(mediaGroup());
 
+// Присылать менеджеру сообщение что клиент выполнил задание вместо ручно проверки командой (команду пока оставить)
 bot.command("check", (ctx) => {
-  // Только для Managers
-  const [command, username, requestNumber] = ctx.message.text.split(" ");
+  if (ctx.session.userData.role === "manager") {
+    const [command, username, requestNumber] = ctx.message.text.split(" ");
 
-  if (!username || !requestNumber) {
-    return ctx.reply(
-      "Please provide the request number. Use /check <username> <number>"
-    );
-  }
-
-  helpers.getPhotos(username, requestNumber, (photos) => {
-    console.log(photos);
-    if (photos.length > 0) {
-      ctx.replyWithMediaGroup(
-        photos.map((photo) => ({ type: "photo", media: photo.file_id }))
+    if (!username || !requestNumber) {
+      return ctx.reply(
+        "Please provide the request number. Use /check <username> <number>"
       );
-    } else {
-      ctx.reply("Фотографии для данного пользователя не найдены.");
     }
-  });
+
+    helpers.getPhotos(username, requestNumber, (media) => {
+      console.log(media);
+      if (media.length > 0) {
+        ctx.replyWithMediaGroup(
+          media.map((m) => ({ type: m.type, media: m.file_id }))
+        );
+      } else {
+        ctx.reply("Фотографии для данного пользователя не найдены.");
+      }
+    });
+  } else {
+    ctx.reply("The command is available only for Managers");
+  }
 });
 
 bot.command("open", (ctx) => {
-  const [command, requestNumber] = ctx.message.text.split(" ");
+  if (ctx.session.userData.role === "model") {
+    const [command, requestNumber] = ctx.message.text.split(" ");
 
-  // Только для Creators
-  if (!requestNumber) {
-    return ctx.reply("Use /open <request number>");
-  }
+    if (!requestNumber) {
+      return ctx.reply("Use /open <request number>");
+    }
 
-  helpers.getCreators((creators) => {
-    const creator = creators.find((c) => c.username === ctx.chat.username);
-    const requests = JSON.parse(creator.requests);
-    const request = requests?.find((r) => r.id === Number(requestNumber));
+    helpers.getCreators((creators) => {
+      const creator = creators.find((c) => c.username === ctx.chat.username);
+      const requests = JSON.parse(creator.requests);
+      const request = requests?.find((r) => r.id === Number(requestNumber));
 
-    if (request) {
-      const request_html = `
+      if (request) {
+        const request_html = `
 <strong>Request №${request.id}</strong> for <u>${request.models_article}</u> from @${request.requester}
       
 <strong>Description:</strong> ${request.description}
       `;
 
-      ctx.reply(request_html, {
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "Upload Content",
-                callback_data: `${request.id}_upload_content`,
-              },
+        ctx.reply(request_html, {
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "Upload Content",
+                  callback_data: `${request.id}_upload_content`,
+                },
+              ],
             ],
-          ],
-        },
-      });
-    } else {
-      ctx.reply("Запрос не найден");
-    }
-  });
+          },
+        });
+      } else {
+        ctx.reply("Запрос не найден");
+      }
+    });
+  } else {
+    ctx.reply("The command is available only for Creators");
+  }
 });
 
-bot.on("photo", (ctx) => {
+const uploadContent = (ctx) => {
   if (ctx.session.current_step === "CREATOR/UPLOAD_CONTENT") {
     const username = ctx.from.username;
-    const photo = ctx.message.photo[ctx.message.photo.length - 1].file_id; // getting the highest resolution photo
+    const media_group = ctx?.mediaGroup;
+    const request_number = ctx.session.userData.request_number;
+
+    if (media_group) {
+      const media = media_group
+        .filter((media) => media?.photo || media?.video || media?.document)
+        .map((media) => {
+          if (media?.photo) {
+            return {
+              type: "photo",
+              file_id: media?.photo?.[media?.photo?.length - 1]?.file_id,
+            };
+          }
+
+          if (media?.video) {
+            return { type: "video", file_id: media?.video?.file_id };
+          }
+
+          if (media?.document) {
+            return { type: "document", file_id: media?.document?.file_id };
+          }
+        });
+
+      console.log(JSON.stringify(media));
+      helpers.storePhoto(username, request_number, JSON.stringify(media));
+    } else {
+      const photo = ctx.message?.photo?.[ctx.message.photo.length - 1]?.file_id; // getting the highest resolution photo
+      const video = ctx.message?.video?.file_id;
+      const document = ctx.message?.document?.file_id;
+
+      let media = [];
+
+      if (photo) {
+        media = [{ type: "photo", file_id: photo }];
+      }
+
+      if (video) {
+        media = [{ type: "video", file_id: video }];
+      }
+
+      if (document) {
+        media = [{ type: "document", file_id: document }];
+      }
+
+      // кейс когда больше 10 файлов
+      helpers.storePhoto(username, request_number, JSON.stringify(media));
+      // Отмечаем задание как выполненное
+    }
 
     ctx.session.current_step = "CREATOR/MAIN_MENU";
-    const request_number = ctx.session.userData.request_number;
-    console.log(request_number);
-
-    // Привязываем фотку к запросу
-    helpers.storePhoto(username, request_number, photo);
-    // Отмечаем задание как выполненное
 
     ctx.reply(
-      "Photo received and saved!",
+      "The request was sent to the manager",
       Markup.keyboard(["📹 Requests"]).resize()
     );
   }
+};
+
+bot.on("media_group", (ctx) => {
+  uploadContent(ctx);
+});
+
+bot.on("photo", (ctx) => {
+  uploadContent(ctx);
+});
+
+bot.on("video", (ctx) => {
+  uploadContent(ctx);
+});
+
+bot.on("document", (ctx) => {
+  uploadContent(ctx);
 });
 
 bot.start(async (ctx) => {
@@ -98,6 +165,8 @@ bot.start(async (ctx) => {
 
   helpers.getUserRole(username, (role) => {
     if (role) {
+      ctx.session.userData.role = role;
+
       if (role === "manager") {
         ctx.session.current_step = "MANAGER/MAIN_MENU";
 
@@ -135,6 +204,7 @@ bot.on("message", async (ctx) => {
 
     if (ctx.message.text === "👱‍♀️ Creator (Will provide content)") {
       ctx.session.current_step = "CREATOR/MAIN_MENU";
+      ctx.session.userData.role = "model";
 
       return helpers.registerUser(user, "model", () => {
         ctx.reply(
@@ -146,6 +216,7 @@ bot.on("message", async (ctx) => {
 
     if (ctx.message.text === "👨‍💻 Manager (Will request content)") {
       ctx.session.current_step = "MANAGER/MAIN_MENU";
+      ctx.session.userData.role = "manager";
 
       return helpers.registerUser(user, "manager", () => {
         ctx.reply(
@@ -210,7 +281,14 @@ ${requests
         // Проверить кейс креейтор зарегистрировался в боте, а потом изменил юзернейм
         ctx.session.userData = { ...ctx.session.userData, creator_username };
         ctx.session.current_step = "REQUEST_CONTENT/MODELS_ARTICLE";
-        return ctx.reply("Which model or models is this request for?");
+        return ctx.replyWithMarkdown(
+          `*Which model or models is this request for?*
+
+_Please note that Creators may not know the model articles, so for your convenience and theirs, please enter it as_
+
+*MO10 (@of_models_username)*
+          `
+        );
       } else {
         return ctx.reply(
           "No such creator was found. The name must match their username in Telegram"
@@ -238,7 +316,7 @@ ${requests
       request_description,
     };
 
-    // ctx.session.current_step = "REQUEST_CONTENT/DESCRIPTION";
+    // ctx.session.current_step = следующий шаг;
     return ctx.replyWithMarkdownV2(
       `
 *Is the task described correctly?*
