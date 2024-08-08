@@ -22,7 +22,6 @@ bot.command("check", (ctx) => {
     }
 
     helpers.getPhotos(username, requestNumber, (media) => {
-      console.log(media);
       if (media.length > 0) {
         ctx.replyWithMediaGroup(
           media.map((m) => ({ type: m.type, media: m.file_id }))
@@ -104,7 +103,6 @@ const uploadContent = (ctx) => {
           }
         });
 
-      console.log(JSON.stringify(media));
       helpers.storePhoto(username, request_number, JSON.stringify(media));
     } else {
       const photo = ctx.message?.photo?.[ctx.message.photo.length - 1]?.file_id; // getting the highest resolution photo
@@ -138,22 +136,6 @@ const uploadContent = (ctx) => {
     );
   }
 };
-
-bot.on("media_group", (ctx) => {
-  uploadContent(ctx);
-});
-
-bot.on("photo", (ctx) => {
-  uploadContent(ctx);
-});
-
-bot.on("video", (ctx) => {
-  uploadContent(ctx);
-});
-
-bot.on("document", (ctx) => {
-  uploadContent(ctx);
-});
 
 bot.start(async (ctx) => {
   ctx.session.userData = {
@@ -196,6 +178,22 @@ bot.start(async (ctx) => {
       );
     }
   });
+});
+
+bot.on("media_group", (ctx) => {
+  uploadContent(ctx);
+});
+
+bot.on("photo", (ctx) => {
+  uploadContent(ctx);
+});
+
+bot.on("video", (ctx) => {
+  uploadContent(ctx);
+});
+
+bot.on("document", (ctx) => {
+  uploadContent(ctx);
 });
 
 bot.on("message", async (ctx) => {
@@ -247,11 +245,15 @@ bot.on("message", async (ctx) => {
 
         const requests_count = requests?.length ?? 0;
 
+        if (!requests) {
+          return ctx.reply("There are no requests");
+        }
+
         return ctx.reply(
           `You have ${requests_count} request(s)
           
 ${requests
-  .map(
+  ?.map(
     (request) =>
       `<strong>№${request.id}</strong> / ${request.models_article} / @${request.requester}\n`
   )
@@ -317,7 +319,7 @@ _Please note that Creators may not know the model articles, so for your convenie
     };
 
     // ctx.session.current_step = следующий шаг;
-    return ctx.replyWithMarkdownV2(
+    return ctx.replyWithMarkdown(
       `
 *Is the task described correctly?*
 

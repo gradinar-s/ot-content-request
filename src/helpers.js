@@ -96,14 +96,48 @@ module.exports = {
 
   // Function to store photos in the database
   storePhoto: (username, request_number, media) => {
-    db.run(
-      "INSERT INTO photos (username, request_number, media) VALUES (?, ?, ?)",
-      [username, request_number, media],
-      function (err) {
-        if (err) {
-          return console.error(err.message);
+    db.get(
+      "SELECT media FROM photos WHERE request_number = ?",
+      [request_number],
+      (error, row) => {
+        if (error) {
+          return console.log(error);
         }
-        console.log(`A row has been inserted with rowid ${this.lastID}`);
+
+        let updatedMedia = [];
+
+        if (row?.media) {
+          updatedMedia = JSON.parse(row.media);
+        }
+
+        updatedMedia = [...updatedMedia, ...JSON.parse(media)];
+
+        const mediaJson = JSON.stringify(updatedMedia);
+
+        if (row) {
+          db.run(
+            "UPDATE photos SET media = ? WHERE request_number = ?",
+            [mediaJson, request_number],
+            function (err) {
+              if (err) {
+                return console.error(err.message);
+              }
+              console.log(`Row(s) updated: ${this.changes}`);
+            }
+          );
+        } else {
+          // Вставляем новую запись
+          db.run(
+            "INSERT INTO photos (username, request_number, media) VALUES (?, ?, ?)",
+            [username, request_number, mediaJson],
+            function (err) {
+              if (err) {
+                return console.error(err.message);
+              }
+              console.log(`A row has been inserted with rowid ${this.lastID}`);
+            }
+          );
+        }
       }
     );
   },
@@ -117,7 +151,8 @@ module.exports = {
         if (err) {
           return console.error(err.message);
         }
-        callback(JSON.parse(rows[0].media));
+        console.log(rows);
+        callback(JSON.parse(rows?.[0]?.media ?? "[]"));
       }
     );
   },
