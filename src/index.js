@@ -13,6 +13,7 @@ bot.use(mediaGroup());
 // Присылать менеджеру сообщение что клиент выполнил задание вместо ручно проверки командой (команду пока оставить)
 bot.command("check", (ctx) => {
   if (ctx.session.userData.role === "manager") {
+    // меняем шаг на checking
     const [command, username, requestNumber] = ctx.message.text.split(" ");
 
     if (!username || !requestNumber) {
@@ -21,11 +22,21 @@ bot.command("check", (ctx) => {
       );
     }
 
-    helpers.getPhotos(username, requestNumber, (media) => {
+    helpers.getPhotos(username, requestNumber, async (media) => {
       if (media.length > 0) {
-        ctx.replyWithMediaGroup(
+        await ctx.replyWithMediaGroup(
           media.map((m) => ({ type: m.type, media: m.file_id }))
         );
+        // await ctx.reply("Confirm or reject the completed request", {
+        //   reply_markup: {
+        //     inline_keyboard: [
+        //       [
+        //         { text: "Approve", callback_data: "approve_content" },
+        //         { text: "Ask to redo", callback_data: "ask_to_redo" },
+        //       ],
+        //     ],
+        //   },
+        // });
       } else {
         ctx.reply("Фотографии для данного пользователя не найдены.");
       }
@@ -125,17 +136,23 @@ const uploadContent = (ctx) => {
 
       // кейс когда больше 10 файлов
       helpers.storePhoto(username, request_number, JSON.stringify(media));
-      // Отмечаем задание как выполненное
     }
 
     ctx.session.current_step = "CREATOR/MAIN_MENU";
 
+    // Присылать менеджеру сообщение что клиент выполнил задание вместо проверки командой
     ctx.reply(
       "The request was sent to the manager",
       Markup.keyboard(["📹 Requests"]).resize()
     );
   }
 };
+
+// 1. Рефактор кода и грамотная организация для расширяемости
+// 2. Обработка ссылки с контентом - string.include('https') + запись ссылки в базу. Когда менеджер делает /check он видит ссылку
+// 3. Open request - список всех открытых заданий
+// 4. Approve content (задание отмечается как выполненное + отображается список выполненных заданий по нажатию на Completed requests)
+// 5. Redo content (Опишите что нужно переделать -> человек описывает -> предпросмотр задания на переделку (отправить/изменить запрос))
 
 bot.start(async (ctx) => {
   ctx.session.userData = {
@@ -154,7 +171,12 @@ bot.start(async (ctx) => {
 
         ctx.reply(
           `Welcome back, ${username}! Your role is ${role}.`,
-          Markup.keyboard([["📹 Request content"]]).resize()
+          Markup.keyboard([
+            ["📹 Request content"],
+            ["⏳ Open requests (dev)"],
+            ["✅ Completed requests (dev)"],
+            // Добавить кнопку перегеристрироваться (на случай если выбрал не то)
+          ]).resize()
         );
       }
 
@@ -163,6 +185,7 @@ bot.start(async (ctx) => {
 
         ctx.reply(
           `Welcome back, ${username}! Your role is ${role}.`,
+          // Добавить кнопку перегеристрироваться (на случай если выбрал не то)
           Markup.keyboard([[`📹 Requests`]]).resize()
         );
       }
@@ -173,7 +196,6 @@ bot.start(async (ctx) => {
         Markup.keyboard([
           ["👱‍♀️ Creator (Will provide content)"],
           ["👨‍💻 Manager (Will request content)"],
-          // Добавить кнопку перегеристрироваться (на случай если выбрал не то)
         ]).resize()
       );
     }
@@ -219,7 +241,11 @@ bot.on("message", async (ctx) => {
       return helpers.registerUser(user, "manager", () => {
         ctx.reply(
           "You have been registered as a Manager.",
-          Markup.keyboard([["📹 Request content"]]).resize()
+          Markup.keyboard([
+            ["📹 Request content"],
+            ["⏳ Open requests (dev)"],
+            ["✅ Completed requests (dev)"],
+          ]).resize()
         );
       });
     }
@@ -259,7 +285,7 @@ ${requests
   )
   .join("")}
 
-<i>Use <code>/open number</code> to see more details about a request</i>`,
+<i>Use <code>/open number</code> to see more details about the request</i>`,
           { parse_mode: "HTML" }
         );
       });
@@ -386,12 +412,32 @@ bot.action("confirm_request", (ctx) => {
       .then(() => {
         ctx.reply(
           "Your request has been sent",
-          Markup.keyboard([["📹 Request content"]]).resize()
+          Markup.keyboard([
+            ["📹 Request content"],
+            ["⏳ Open requests (dev)"],
+            ["✅ Completed requests (dev)"],
+          ]).resize()
         );
       });
   });
 });
 
+//
+bot.action("approve_content", (ctx) => {
+  ctx.answerCbQuery();
+  // выполнить задание как готовое
+  // изменить шаг на главное меню
+  return ctx.reply("Approved");
+});
+
+bot.action("ask_to_redo", (ctx) => {
+  ctx.answerCbQuery();
+  // просим описать что нужно передать, снова формируем пред просмотр
+  // изменить шаг на главное меню
+  return ctx.reply("Sent to redoing");
+});
+
+//
 bot.action("reenter_request", (ctx) => {
   ctx.answerCbQuery();
   // return ctx.reply("");

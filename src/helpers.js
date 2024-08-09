@@ -1,21 +1,6 @@
 const { db } = require("./db");
 
 module.exports = {
-  registerModels: (modelNames, callback) => {
-    const placeholders = modelNames.map(() => "(?)").join(",");
-    db.run(
-      `INSERT OR IGNORE INTO models (name) VALUES ${placeholders}`,
-      modelNames,
-      function (err) {
-        if (err) {
-          return console.error(err.message);
-        }
-        console.log(`Models ${modelNames.join(", ")} have been registered.`);
-        callback();
-      }
-    );
-  },
-
   createNewRequest: (params, callback) => {
     const { creator_id, request } = params;
 
