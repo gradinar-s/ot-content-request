@@ -5,7 +5,7 @@ module.exports = {
     const { creator_id, request } = params;
 
     db.get(
-      "SELECT requests FROM users WHERE user_id = ?",
+      "SELECT requests FROM users WHERE username = ?",
       [creator_id],
       (error, row) => {
         if (error) {
@@ -15,19 +15,14 @@ module.exports = {
         let requests = [];
 
         if (row && row.requests) {
-          // Преобразуем JSON-строку в массив
           requests = JSON.parse(row.requests);
         }
 
-        // Добавляем новый запрос в массив
         requests.push(request);
-
-        // Преобразуем массив обратно в JSON-строку
         const requestsJson = JSON.stringify(requests);
 
-        // Обновляем поле requests у пользователя
         db.run(
-          "UPDATE users SET requests = ? WHERE user_id = ?",
+          "UPDATE users SET requests = ? WHERE username = ?",
           [requestsJson, creator_id],
           function (err) {
             if (err) {
@@ -56,7 +51,6 @@ module.exports = {
     );
   },
 
-  // Функция для получения роли пользователя
   getUserRole: (username, callback) => {
     db.get(
       "SELECT role FROM users WHERE username = ?",
@@ -79,7 +73,6 @@ module.exports = {
     });
   },
 
-  // Function to store photos in the database
   storePhoto: (username, request_number, media) => {
     db.get(
       "SELECT media FROM photos WHERE request_number = ?",
@@ -111,7 +104,6 @@ module.exports = {
             }
           );
         } else {
-          // Вставляем новую запись
           db.run(
             "INSERT INTO photos (username, request_number, media) VALUES (?, ?, ?)",
             [username, request_number, mediaJson],
@@ -127,7 +119,6 @@ module.exports = {
     );
   },
 
-  // Функция для получения фотографий из базы данных
   getPhotos: (username, requestNumber, callback) => {
     db.all(
       "SELECT media FROM photos WHERE username = ? AND request_number = ?",
@@ -142,3 +133,4 @@ module.exports = {
     );
   },
 };
+
