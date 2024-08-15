@@ -141,4 +141,17 @@ module.exports = {
       }
     );
   },
+  updateUserRole: (user, role, callback) => {
+    db.run(
+      "UPDATE users SET role = ? WHERE username = ?",
+      [role, user.username],
+      function (err) {
+        if (err) {
+          return console.error(err.message);
+        }
+        console.log(`User ${user.username} role has been updated to ${role}.`);
+        callback();
+      }
+    );
+  },
 };
