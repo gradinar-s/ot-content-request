@@ -10,10 +10,8 @@ const bot = new Telegraf(process.env.BOT_TOKEN);
 bot.use(new LocalSession({ database: "session.json" }).middleware());
 bot.use(mediaGroup());
 
-// Присылать менеджеру сообщение что клиент выполнил задание вместо ручно проверки командой (команду пока оставить)
 bot.command("check", (ctx) => {
   if (ctx.session.userData.role === "manager") {
-    // меняем шаг на checking
     const [command, username, requestNumber] = ctx.message.text.split(" ");
 
     if (!username || !requestNumber) {
@@ -27,16 +25,6 @@ bot.command("check", (ctx) => {
         await ctx.replyWithMediaGroup(
           media.map((m) => ({ type: m.type, media: m.file_id }))
         );
-        // await ctx.reply("Confirm or reject the completed request", {
-        //   reply_markup: {
-        //     inline_keyboard: [
-        //       [
-        //         { text: "Approve", callback_data: "approve_content" },
-        //         { text: "Ask to redo", callback_data: "ask_to_redo" },
-        //       ],
-        //     ],
-        //   },
-        // });
       } else {
         ctx.reply("Фотографии для данного пользователя не найдены.");
       }
@@ -116,7 +104,7 @@ const uploadContent = (ctx) => {
 
       helpers.storePhoto(username, request_number, JSON.stringify(media));
     } else {
-      const photo = ctx.message?.photo?.[ctx.message.photo.length - 1]?.file_id; // getting the highest resolution photo
+      const photo = ctx.message?.photo?.[ctx.message.photo.length - 1]?.file_id;
       const video = ctx.message?.video?.file_id;
       const document = ctx.message?.document?.file_id;
 
@@ -143,16 +131,13 @@ const uploadContent = (ctx) => {
     // Присылать менеджеру сообщение что клиент выполнил задание вместо проверки командой
     ctx.reply(
       "The request was sent to the manager",
-      Markup.keyboard(["📹 Requests"]).resize()
+          Markup.keyboard([
+            ["📹 Requests"],
+            ["🔁 Change the role"],
+          ]).resize()
     );
   }
 };
-
-// 1. Рефактор кода и грамотная организация для расширяемости
-// 2. Обработка ссылки с контентом - string.include('https') + запись ссылки в базу. Когда менеджер делает /check он видит ссылку
-// 3. Open request - список всех открытых заданий
-// 4. Approve content (задание отмечается как выполненное + отображается список выполненных заданий по нажатию на Completed requests)
-// 5. Redo content (Опишите что нужно переделать -> человек описывает -> предпросмотр задания на переделку (отправить/изменить запрос))
 
 bot.start(async (ctx) => {
   ctx.session.userData = {
@@ -175,7 +160,7 @@ bot.start(async (ctx) => {
             ["📹 Request content"],
             ["⏳ Open requests (dev)"],
             ["✅ Completed requests (dev)"],
-            // Добавить кнопку перегеристрироваться (на случай если выбрал не то)
+            ["🔁 Change the role"],
           ]).resize()
         );
       }
@@ -185,8 +170,10 @@ bot.start(async (ctx) => {
 
         ctx.reply(
           `Welcome back, ${username}! Your role is ${role}.`,
-          // Добавить кнопку перегеристрироваться (на случай если выбрал не то)
-          Markup.keyboard([[`📹 Requests`]]).resize()
+            Markup.keyboard([
+            ["📹 Requests"],
+            ["🔁 Change the role"],
+          ]).resize()
         );
       }
     } else {
@@ -226,10 +213,13 @@ bot.on("message", async (ctx) => {
       ctx.session.current_step = "CREATOR/MAIN_MENU";
       ctx.session.userData.role = "model";
 
-      return helpers.registerUser(user, "model", () => {
+      return helpers.updateUserRole(user, "model", () => {
         ctx.reply(
           "You have been registered as a Creator.",
-          Markup.keyboard(["📹 Requests"]).resize()
+          Markup.keyboard([
+            ["📹 Requests"],
+            ["🔁 Change the role"],
+          ]).resize()
         );
       });
     }
@@ -238,18 +228,46 @@ bot.on("message", async (ctx) => {
       ctx.session.current_step = "MANAGER/MAIN_MENU";
       ctx.session.userData.role = "manager";
 
-      return helpers.registerUser(user, "manager", () => {
+      return helpers.updateUserRole(user, "manager", () => {
         ctx.reply(
           "You have been registered as a Manager.",
           Markup.keyboard([
             ["📹 Request content"],
             ["⏳ Open requests (dev)"],
             ["✅ Completed requests (dev)"],
+            ["🔁 Change the role"],
           ]).resize()
         );
       });
     }
   }
+
+  if (ctx.session.current_step === "MANAGER/MAIN_MENU") {
+    if (ctx.message.text === "🔁 Change the role") {
+      ctx.session.current_step = "ROLE_SELECTION";
+      return ctx.reply(
+        "Who are you?",
+        Markup.keyboard([
+          ["👱‍♀️ Creator (Will provide content)"],
+          ["👨‍💻 Manager (Will request content)"],
+        ]).resize()
+      );
+    }
+  }
+
+  if (ctx.session.current_step === "CREATOR/MAIN_MENU") {
+    if (ctx.message.text === "🔁 Change the role") {
+      ctx.session.current_step = "ROLE_SELECTION";
+      return ctx.reply(
+        "Who are you?",
+        Markup.keyboard([
+          ["👱‍♀️ Creator (Will provide content)"],
+          ["👨‍💻 Manager (Will request content)"],
+        ]).resize()
+      );
+    }
+  }
+
 
   if (ctx.session.current_step === "MANAGER/MAIN_MENU") {
     if (ctx.message.text === "📹 Request content") {
@@ -295,7 +313,11 @@ ${requests
   if (ctx.session.current_step === "CREATOR/UPLOAD_CONTENT") {
     if (ctx.message.text === "Cancel") {
       ctx.session.current_step = "CREATOR/MAIN_MENU";
-      ctx.reply("Canceled", Markup.keyboard(["📹 Requests"]).resize());
+      ctx.reply("Canceled",
+           Markup.keyboard([
+            ["📹 Requests"],
+            ["🔁 Change the role"],
+          ]).resize();
     }
   }
 
@@ -305,8 +327,6 @@ ${requests
       const creator = creators.find((c) => c.username === creator_username);
 
       if (creator) {
-        // Обрезать собачку
-        // Проверить кейс креейтор зарегистрировался в боте, а потом изменил юзернейм
         ctx.session.userData = { ...ctx.session.userData, creator_username };
         ctx.session.current_step = "REQUEST_CONTENT/MODELS_ARTICLE";
         return ctx.replyWithMarkdown(
@@ -326,7 +346,6 @@ _Please note that Creators may not know the model articles, so for your convenie
   }
 
   if (ctx.session.current_step === "REQUEST_CONTENT/MODELS_ARTICLE") {
-    // Validation ... and if ok ->
     ctx.session.userData = {
       ...ctx.session.userData,
       models_article: ctx.message.text,
@@ -336,7 +355,6 @@ _Please note that Creators may not know the model articles, so for your convenie
   }
 
   if (ctx.session.current_step === "REQUEST_CONTENT/DESCRIPTION") {
-    // Validation ... and if ok ->
     const request_description = ctx.message.text;
 
     ctx.session.userData = {
@@ -344,7 +362,6 @@ _Please note that Creators may not know the model articles, so for your convenie
       request_description,
     };
 
-    // ctx.session.current_step = следующий шаг;
     return ctx.replyWithMarkdown(
       `
 *Is the task described correctly?*
@@ -362,7 +379,6 @@ Request for *${ctx.session.userData.models_article}*
   }
 });
 
-// Actions
 bot.action("confirm_request", (ctx) => {
   ctx.answerCbQuery();
 
@@ -416,31 +432,25 @@ bot.action("confirm_request", (ctx) => {
             ["📹 Request content"],
             ["⏳ Open requests (dev)"],
             ["✅ Completed requests (dev)"],
+            ["🔁 Change the role"],
           ]).resize()
         );
       });
   });
 });
 
-//
 bot.action("approve_content", (ctx) => {
   ctx.answerCbQuery();
-  // выполнить задание как готовое
-  // изменить шаг на главное меню
   return ctx.reply("Approved");
 });
 
 bot.action("ask_to_redo", (ctx) => {
   ctx.answerCbQuery();
-  // просим описать что нужно передать, снова формируем пред просмотр
-  // изменить шаг на главное меню
   return ctx.reply("Sent to redoing");
 });
 
-//
 bot.action("reenter_request", (ctx) => {
   ctx.answerCbQuery();
-  // return ctx.reply("");
 });
 
 bot.action(/.+_upload_content/, (ctx) => {
@@ -467,6 +477,7 @@ bot.action(/.+_upload_content/, (ctx) => {
 
 bot.launch();
 
-// Enable graceful stop
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
+
+
