@@ -12,6 +12,7 @@ bot.use(mediaGroup());
 
 bot.command("check", (ctx) => {
   if (ctx.session.userData.role === "manager") {
+    // меняем шаг на checking
     const [command, username, requestNumber] = ctx.message.text.split(" ");
 
     if (!username || !requestNumber) {
@@ -25,10 +26,23 @@ bot.command("check", (ctx) => {
         await ctx.replyWithMediaGroup(
           media.map((m) => ({ type: m.type, media: m.file_id }))
         );
+        await ctx.reply("Confirm or reject the completed request", {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                { text: "Approve", callback_data: "approve_content" },
+                { text: "Ask to redo", callback_data: "ask_to_redo" },
+              ],
+            ],
+          },
+        });
       } else {
         ctx.reply("Фотографии для данного пользователя не найдены.");
       }
     });
+
+    // Send a message to the client that the manager has checked the request
+    helpers.sendMessageToClient(username, "Manager has checked your request");
   } else {
     ctx.reply("The command is available only for Managers");
   }
@@ -76,14 +90,32 @@ bot.command("open", (ctx) => {
   }
 });
 
+const displayLink = (ctx) => {
+  const username = ctx.from.username;
+  const request_number = ctx.session.userData.request_number;
+  const linkUrl = helpers.getLink(username, request_number);
+  if (linkUrl) {
+    ctx.reply(`Link: ${linkUrl}`);
+  } else {
+    ctx.reply("No link saved for this request.");
+  }
+};
+
 const uploadContent = (ctx) => {
   if (ctx.session.current_step === "CREATOR/UPLOAD_CONTENT") {
     const username = ctx.from.username;
-    const media_group = ctx?.mediaGroup;
     const request_number = ctx.session.userData.request_number;
 
-    if (media_group) {
-      const media = media_group
+    if (ctx.message.text.startsWith("/link")) {
+      const linkUrl = ctx.message.text.replace("/link", "").trim();
+      helpers.storeLink(username, request_number, linkUrl);
+      ctx.reply("Link saved successfully!");
+
+      // Send link to manager
+      helpers.sendMessageToManager(username, `Client has uploaded content: ${linkUrl}`);
+    } else if (ctx.mediaGroup) {
+      // Handle media group
+      const media = ctx.mediaGroup
         .filter((media) => media?.photo || media?.video || media?.document)
         .map((media) => {
           if (media?.photo) {
@@ -102,39 +134,24 @@ const uploadContent = (ctx) => {
           }
         });
 
-      helpers.storePhoto(username, request_number, JSON.stringify(media));
+      helpers.storeMedia(username, request_number, JSON.stringify(media));
+      ctx.reply("Media sent to manager");
+
+      // Send media to manager
+      const mediaTypes = media.map((m) => m.type).join(", ");
+      helpers.sendMessageToManager(username, `Client has uploaded media: ${mediaTypes}`);
     } else {
-      const photo = ctx.message?.photo?.[ctx.message.photo.length - 1]?.file_id;
-      const video = ctx.message?.video?.file_id;
-      const document = ctx.message?.document?.file_id;
-
-      let media = [];
-
-      if (photo) {
-        media = [{ type: "photo", file_id: photo }];
-      }
-
-      if (video) {
-        media = [{ type: "video", file_id: video }];
-      }
-
-      if (document) {
-        media = [{ type: "document", file_id: document }];
-      }
-
-      // кейс когда больше 10 файлов
-      helpers.storePhoto(username, request_number, JSON.stringify(media));
+      ctx.reply("Please send a file or a text message");
     }
 
     ctx.session.current_step = "CREATOR/MAIN_MENU";
 
-    // Присылать менеджеру сообщение что клиент выполнил задание вместо проверки командой
     ctx.reply(
       "The request was sent to the manager",
-          Markup.keyboard([
-            ["📹 Requests"],
-            ["🔁 Change the role"],
-          ]).resize()
+      Markup.keyboard([
+        ["Requests"],
+        ["Change the role"],
+      ]).resize()
     );
   }
 };
@@ -170,6 +187,7 @@ bot.start(async (ctx) => {
 
         ctx.reply(
           `Welcome back, ${username}! Your role is ${role}.`,
+          // Добавить кнопку перегеристрироваться (на случай если выбрал не то)
             Markup.keyboard([
             ["📹 Requests"],
             ["🔁 Change the role"],
@@ -313,11 +331,11 @@ ${requests
   if (ctx.session.current_step === "CREATOR/UPLOAD_CONTENT") {
     if (ctx.message.text === "Cancel") {
       ctx.session.current_step = "CREATOR/MAIN_MENU";
-      ctx.reply("Canceled",
-           Markup.keyboard([
+      ctx.reply("Canceled",           
+          Markup.keyboard([
             ["📹 Requests"],
             ["🔁 Change the role"],
-          ]).resize();
+          ]).resize());
     }
   }
 
@@ -327,6 +345,8 @@ ${requests
       const creator = creators.find((c) => c.username === creator_username);
 
       if (creator) {
+        // Обрезать собачку
+        // Проверить кейс креейтор зарегистрировался в боте, а потом изменил юзернейм
         ctx.session.userData = { ...ctx.session.userData, creator_username };
         ctx.session.current_step = "REQUEST_CONTENT/MODELS_ARTICLE";
         return ctx.replyWithMarkdown(
@@ -346,6 +366,7 @@ _Please note that Creators may not know the model articles, so for your convenie
   }
 
   if (ctx.session.current_step === "REQUEST_CONTENT/MODELS_ARTICLE") {
+    // Validation ... and if ok ->
     ctx.session.userData = {
       ...ctx.session.userData,
       models_article: ctx.message.text,
@@ -355,6 +376,7 @@ _Please note that Creators may not know the model articles, so for your convenie
   }
 
   if (ctx.session.current_step === "REQUEST_CONTENT/DESCRIPTION") {
+    // Validation ... and if ok ->
     const request_description = ctx.message.text;
 
     ctx.session.userData = {
@@ -362,6 +384,7 @@ _Please note that Creators may not know the model articles, so for your convenie
       request_description,
     };
 
+    // ctx.session.current_step = следующий шаг;
     return ctx.replyWithMarkdown(
       `
 *Is the task described correctly?*
@@ -379,6 +402,7 @@ Request for *${ctx.session.userData.models_article}*
   }
 });
 
+// Actions
 bot.action("confirm_request", (ctx) => {
   ctx.answerCbQuery();
 
@@ -439,18 +463,25 @@ bot.action("confirm_request", (ctx) => {
   });
 });
 
+//
 bot.action("approve_content", (ctx) => {
   ctx.answerCbQuery();
+  // выполнить задание как готовое
+  // изменить шаг на главное меню
   return ctx.reply("Approved");
 });
 
 bot.action("ask_to_redo", (ctx) => {
   ctx.answerCbQuery();
+  // просим описать что нужно передать, снова формируем пред просмотр
+  // изменить шаг на главное меню
   return ctx.reply("Sent to redoing");
 });
 
+//
 bot.action("reenter_request", (ctx) => {
   ctx.answerCbQuery();
+  // return ctx.reply("");
 });
 
 bot.action(/.+_upload_content/, (ctx) => {
@@ -477,7 +508,6 @@ bot.action(/.+_upload_content/, (ctx) => {
 
 bot.launch();
 
+// Enable graceful stop
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
-
-
