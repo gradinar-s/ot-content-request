@@ -16,5 +16,13 @@ const sqlPhotos = `
         media TEXT
     )
 `;
+const sqlMessages = `
+    CREATE TABLE IF NOT EXISTS messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        request_number INTEGER,
+        text TEXT
+    )
+`;
 
-module.exports = { sqlUsers, sqlPhotos };
+module.exports = { sqlUsers, sqlPhotos, sqlMessages };
