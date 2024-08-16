@@ -55,6 +55,19 @@ module.exports = {
       }
     );
   },
+  storeTextMessage: (username, request_number, text) => {
+    db.run(
+      "INSERT INTO messages (username, request_number, text) VALUES (?, ?, ?)",
+      [username, request_number, text],
+      function (err) {
+        if (err) {
+          return console.error(err.message);
+        }
+        console.log(`Text message stored in database`);
+      }
+    );
+  },
+
 
   // Функция для получения роли пользователя
   getUserRole: (username, callback) => {
